@@ -69,7 +69,7 @@ static void ngx_http_var_limit_req_delay(ngx_http_request_t *r);
 static ngx_int_t ngx_http_var_limit_req_lookup(ngx_http_request_t *r,
     ngx_http_var_limit_req_limit_t *limit,
     ngx_uint_t hash, ngx_str_t *key, ngx_uint_t *ep, ngx_uint_t account,
-    ngx_uint_t *rate);
+    ngx_uint_t rate);
 static ngx_msec_t ngx_http_var_limit_req_account(
     ngx_http_var_limit_req_limit_t *limits, ngx_uint_t n, ngx_uint_t *ep,
     ngx_http_var_limit_req_limit_t **limit, ngx_uint_t rate);
@@ -199,14 +199,15 @@ static ngx_int_t
 ngx_http_var_limit_req_handler(ngx_http_request_t *r)
 {
     uint32_t                         hash;
-    ngx_str_t                        key;
+    ngx_str_t                        key, rate_var;
     ngx_int_t                        rc;
-    ngx_uint_t                       n, excess;
+    ngx_uint_t                       n, excess, rate, scale;
     ngx_msec_t                       delay;
     ngx_http_var_limit_req_ctx_t    *ctx;
     ngx_http_var_limit_req_conf_t   *lrcf;
     ngx_http_var_limit_req_limit_t  *limit, *limits;
-    ngx_uint_t                       rate;
+    u_char                          *p;
+    size_t                           len;
 
     if (r->main->limit_req_status) {
         return NGX_DECLINED;
@@ -249,11 +250,43 @@ ngx_http_var_limit_req_handler(ngx_http_request_t *r)
 
         hash = ngx_crc32_short(key.data, key.len);
 
+        rate = ctx->rate;
+
+        if (ngx_http_complex_value(r, &ctx->rate_var, &rate_var) != NGX_OK) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                          "could not get rate_var value");
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+
+        if (rate_var.len != 0) {
+            len = rate_var.len;
+            p = rate_var.data + len - 3;
+
+            scale = 1;
+
+            if (ngx_strncmp(p, "r/s", 3) == 0) {
+                len -= 3;
+
+            } else if (ngx_strncmp(p, "r/m", 3) == 0) {
+                scale = 60;
+                len -= 3;
+            }
+
+            rate = ngx_atoi(rate_var.data, len);
+            if (rate <= 0) {
+                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                              "invalid rate_var value \"%V\"", &rate_var);
+                return NGX_HTTP_INTERNAL_SERVER_ERROR;
+            }
+
+            rate *= 1000 / scale;
+        }
+
         ngx_shmtx_lock(&ctx->shpool->mutex);
 
         rc = ngx_http_var_limit_req_lookup(r, limit, hash, &key, &excess,
                                            (n == lrcf->limits.nelts - 1),
-                                           &rate);
+                                           rate);
 
         ngx_shmtx_unlock(&ctx->shpool->mutex);
 
@@ -412,24 +445,19 @@ static ngx_int_t
 ngx_http_var_limit_req_lookup(ngx_http_request_t *r,
     ngx_http_var_limit_req_limit_t *limit, ngx_uint_t hash,
     ngx_str_t *key, ngx_uint_t *ep, ngx_uint_t account,
-    ngx_uint_t *rate)
+    ngx_uint_t rate)
 {
-    size_t                          size, len;
+    size_t                          size;
     ngx_int_t                       rc, excess;
     ngx_msec_t                      now;
     ngx_msec_int_t                  ms;
     ngx_rbtree_node_t              *node, *sentinel;
     ngx_http_var_limit_req_ctx_t   *ctx;
     ngx_http_var_limit_req_node_t  *lr;
-    ngx_str_t                       rate_var;
-    ngx_uint_t                      scale;
-    u_char                         *p;
 
     now = ngx_current_msec;
 
     ctx = limit->shm_zone->data;
-
-    *rate = ctx->rate;
 
     node = ctx->sh->rbtree.root;
     sentinel = ctx->sh->rbtree.sentinel;
@@ -465,37 +493,7 @@ ngx_http_var_limit_req_lookup(ngx_http_request_t *r,
                 ms = 0;
             }
 
-            if (ngx_http_complex_value(r, &ctx->rate_var, &rate_var) != NGX_OK) {
-                ngx_log_error(NGX_LOG_ALERT, ngx_cycle->log, 0,
-                              "could not get rate_var value");
-                return NGX_ERROR;
-            }
-
-            if (rate_var.len != 0) {
-                len = rate_var.len;
-                p = rate_var.data + len - 3;
-
-                scale = 1;
-
-                if (ngx_strncmp(p, "r/s", 3) == 0) {
-                    len -= 3;
-
-                } else if (ngx_strncmp(p, "r/m", 3) == 0) {
-                    scale = 60;
-                    len -= 3;
-                }
-
-                *rate = ngx_atoi(rate_var.data, len);
-                if (*rate <= 0) {
-                    ngx_log_error(NGX_LOG_EMERG, ngx_cycle->log, 0,
-                                  "invalid rate_var value \"%V\"", &rate_var);
-                    return NGX_ERROR;
-                }
-
-                *rate *= 1000 / scale;
-            }
-
-            excess = lr->excess - *rate * ms / 1000 + 1000;
+            excess = lr->excess - rate * ms / 1000 + 1000;
 
             if (excess < 0) {
                 excess = 0;
@@ -533,12 +531,12 @@ ngx_http_var_limit_req_lookup(ngx_http_request_t *r,
            + offsetof(ngx_http_var_limit_req_node_t, data)
            + key->len;
 
-    ngx_http_var_limit_req_expire(ctx, 1, *rate);
+    ngx_http_var_limit_req_expire(ctx, 1, rate);
 
     node = ngx_slab_alloc_locked(ctx->shpool, size);
 
     if (node == NULL) {
-        ngx_http_var_limit_req_expire(ctx, 0, *rate);
+        ngx_http_var_limit_req_expire(ctx, 0, rate);
 
         node = ngx_slab_alloc_locked(ctx->shpool, size);
         if (node == NULL) {
