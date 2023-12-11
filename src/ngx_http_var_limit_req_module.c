@@ -10,11 +10,11 @@
 #include <ngx_http.h>
 
 
-#define NGX_HTTP_LIMIT_REQ_PASSED            1
-#define NGX_HTTP_LIMIT_REQ_DELAYED           2
-#define NGX_HTTP_LIMIT_REQ_REJECTED          3
-#define NGX_HTTP_LIMIT_REQ_DELAYED_DRY_RUN   4
-#define NGX_HTTP_LIMIT_REQ_REJECTED_DRY_RUN  5
+#define NGX_HTTP_VAR_LIMIT_REQ_PASSED            1
+#define NGX_HTTP_VAR_LIMIT_REQ_DELAYED           2
+#define NGX_HTTP_VAR_LIMIT_REQ_REJECTED          3
+#define NGX_HTTP_VAR_LIMIT_REQ_DELAYED_DRY_RUN   4
+#define NGX_HTTP_VAR_LIMIT_REQ_REJECTED_DRY_RUN  5
 
 
 typedef struct {
@@ -27,24 +27,24 @@ typedef struct {
     ngx_uint_t                   excess;
     ngx_uint_t                   count;
     u_char                       data[1];
-} ngx_http_limit_req_node_t;
+} ngx_http_var_limit_req_node_t;
 
 
 typedef struct {
     ngx_rbtree_t                  rbtree;
     ngx_rbtree_node_t             sentinel;
     ngx_queue_t                   queue;
-} ngx_http_limit_req_shctx_t;
+} ngx_http_var_limit_req_shctx_t;
 
 
 typedef struct {
-    ngx_http_limit_req_shctx_t  *sh;
-    ngx_slab_pool_t             *shpool;
+    ngx_http_var_limit_req_shctx_t  *sh;
+    ngx_slab_pool_t                 *shpool;
     /* integer value, 1 corresponds to 0.001 r/s */
-    ngx_uint_t                   rate;
-    ngx_http_complex_value_t     key;
-    ngx_http_limit_req_node_t   *node;
-} ngx_http_limit_req_ctx_t;
+    ngx_uint_t                       rate;
+    ngx_http_complex_value_t         key;
+    ngx_http_var_limit_req_node_t   *node;
+} ngx_http_var_limit_req_ctx_t;
 
 
 typedef struct {
@@ -52,7 +52,7 @@ typedef struct {
     /* integer value, 1 corresponds to 0.001 r/s */
     ngx_uint_t                   burst;
     ngx_uint_t                   delay;
-} ngx_http_limit_req_limit_t;
+} ngx_http_var_limit_req_limit_t;
 
 
 typedef struct {
@@ -61,33 +61,33 @@ typedef struct {
     ngx_uint_t                   delay_log_level;
     ngx_uint_t                   status_code;
     ngx_flag_t                   dry_run;
-} ngx_http_limit_req_conf_t;
+} ngx_http_var_limit_req_conf_t;
 
 
-static void ngx_http_limit_req_delay(ngx_http_request_t *r);
-static ngx_int_t ngx_http_limit_req_lookup(ngx_http_limit_req_limit_t *limit,
+static void ngx_http_var_limit_req_delay(ngx_http_request_t *r);
+static ngx_int_t ngx_http_var_limit_req_lookup(ngx_http_var_limit_req_limit_t *limit,
     ngx_uint_t hash, ngx_str_t *key, ngx_uint_t *ep, ngx_uint_t account);
-static ngx_msec_t ngx_http_limit_req_account(ngx_http_limit_req_limit_t *limits,
-    ngx_uint_t n, ngx_uint_t *ep, ngx_http_limit_req_limit_t **limit);
-static void ngx_http_limit_req_unlock(ngx_http_limit_req_limit_t *limits,
+static ngx_msec_t ngx_http_var_limit_req_account(ngx_http_var_limit_req_limit_t *limits,
+    ngx_uint_t n, ngx_uint_t *ep, ngx_http_var_limit_req_limit_t **limit);
+static void ngx_http_var_limit_req_unlock(ngx_http_var_limit_req_limit_t *limits,
     ngx_uint_t n);
-static void ngx_http_limit_req_expire(ngx_http_limit_req_ctx_t *ctx,
+static void ngx_http_var_limit_req_expire(ngx_http_var_limit_req_ctx_t *ctx,
     ngx_uint_t n);
 
-static ngx_int_t ngx_http_limit_req_status_variable(ngx_http_request_t *r,
+static ngx_int_t ngx_http_var_limit_req_status_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
-static void *ngx_http_limit_req_create_conf(ngx_conf_t *cf);
-static char *ngx_http_limit_req_merge_conf(ngx_conf_t *cf, void *parent,
+static void *ngx_http_var_limit_req_create_conf(ngx_conf_t *cf);
+static char *ngx_http_var_limit_req_merge_conf(ngx_conf_t *cf, void *parent,
     void *child);
-static char *ngx_http_limit_req_zone(ngx_conf_t *cf, ngx_command_t *cmd,
+static char *ngx_http_var_limit_req_zone(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
-static char *ngx_http_limit_req(ngx_conf_t *cf, ngx_command_t *cmd,
+static char *ngx_http_var_limit_req(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
-static ngx_int_t ngx_http_limit_req_add_variables(ngx_conf_t *cf);
-static ngx_int_t ngx_http_limit_req_init(ngx_conf_t *cf);
+static ngx_int_t ngx_http_var_limit_req_add_variables(ngx_conf_t *cf);
+static ngx_int_t ngx_http_var_limit_req_init(ngx_conf_t *cf);
 
 
-static ngx_conf_enum_t  ngx_http_limit_req_log_levels[] = {
+static ngx_conf_enum_t  ngx_http_var_limit_req_log_levels[] = {
     { ngx_string("info"), NGX_LOG_INFO },
     { ngx_string("notice"), NGX_LOG_NOTICE },
     { ngx_string("warn"), NGX_LOG_WARN },
@@ -96,55 +96,55 @@ static ngx_conf_enum_t  ngx_http_limit_req_log_levels[] = {
 };
 
 
-static ngx_conf_num_bounds_t  ngx_http_limit_req_status_bounds = {
+static ngx_conf_num_bounds_t  ngx_http_var_limit_req_status_bounds = {
     ngx_conf_check_num_bounds, 400, 599
 };
 
 
-static ngx_command_t  ngx_http_limit_req_commands[] = {
+static ngx_command_t  ngx_http_var_limit_req_commands[] = {
 
-    { ngx_string("limit_req_zone"),
+    { ngx_string("var_limit_req_zone"),
       NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE3,
-      ngx_http_limit_req_zone,
+      ngx_http_var_limit_req_zone,
       0,
       0,
       NULL },
 
-    { ngx_string("limit_req"),
+    { ngx_string("var_limit_req"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE123,
-      ngx_http_limit_req,
+      ngx_http_var_limit_req,
       NGX_HTTP_LOC_CONF_OFFSET,
       0,
       NULL },
 
-    { ngx_string("limit_req_log_level"),
+    { ngx_string("var_limit_req_log_level"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_enum_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_limit_req_conf_t, limit_log_level),
-      &ngx_http_limit_req_log_levels },
+      offsetof(ngx_http_var_limit_req_conf_t, limit_log_level),
+      &ngx_http_var_limit_req_log_levels },
 
-    { ngx_string("limit_req_status"),
+    { ngx_string("var_limit_req_status"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_num_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_limit_req_conf_t, status_code),
-      &ngx_http_limit_req_status_bounds },
+      offsetof(ngx_http_var_limit_req_conf_t, status_code),
+      &ngx_http_var_limit_req_status_bounds },
 
-    { ngx_string("limit_req_dry_run"),
+    { ngx_string("var_limit_req_dry_run"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_FLAG,
       ngx_conf_set_flag_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_limit_req_conf_t, dry_run),
+      offsetof(ngx_http_var_limit_req_conf_t, dry_run),
       NULL },
 
       ngx_null_command
 };
 
 
-static ngx_http_module_t  ngx_http_limit_req_module_ctx = {
-    ngx_http_limit_req_add_variables,      /* preconfiguration */
-    ngx_http_limit_req_init,               /* postconfiguration */
+static ngx_http_module_t  ngx_http_var_limit_req_module_ctx = {
+    ngx_http_var_limit_req_add_variables,  /* preconfiguration */
+    ngx_http_var_limit_req_init,           /* postconfiguration */
 
     NULL,                                  /* create main configuration */
     NULL,                                  /* init main configuration */
@@ -152,15 +152,15 @@ static ngx_http_module_t  ngx_http_limit_req_module_ctx = {
     NULL,                                  /* create server configuration */
     NULL,                                  /* merge server configuration */
 
-    ngx_http_limit_req_create_conf,        /* create location configuration */
-    ngx_http_limit_req_merge_conf          /* merge location configuration */
+    ngx_http_var_limit_req_create_conf,    /* create location configuration */
+    ngx_http_var_limit_req_merge_conf      /* merge location configuration */
 };
 
 
-ngx_module_t  ngx_http_limit_req_module = {
+ngx_module_t  ngx_http_var_limit_req_module = {
     NGX_MODULE_V1,
-    &ngx_http_limit_req_module_ctx,        /* module context */
-    ngx_http_limit_req_commands,           /* module directives */
+    &ngx_http_var_limit_req_module_ctx,    /* module context */
+    ngx_http_var_limit_req_commands,       /* module directives */
     NGX_HTTP_MODULE,                       /* module type */
     NULL,                                  /* init master */
     NULL,                                  /* init module */
@@ -173,16 +173,16 @@ ngx_module_t  ngx_http_limit_req_module = {
 };
 
 
-static ngx_http_variable_t  ngx_http_limit_req_vars[] = {
+static ngx_http_variable_t  ngx_http_var_limit_req_vars[] = {
 
-    { ngx_string("limit_req_status"), NULL,
-      ngx_http_limit_req_status_variable, 0, NGX_HTTP_VAR_NOCACHEABLE, 0 },
+    { ngx_string("var_limit_req_status"), NULL,
+      ngx_http_var_limit_req_status_variable, 0, NGX_HTTP_VAR_NOCACHEABLE, 0 },
 
       ngx_http_null_variable
 };
 
 
-static ngx_str_t  ngx_http_limit_req_status[] = {
+static ngx_str_t  ngx_http_var_limit_req_status[] = {
     ngx_string("PASSED"),
     ngx_string("DELAYED"),
     ngx_string("REJECTED"),
@@ -192,22 +192,22 @@ static ngx_str_t  ngx_http_limit_req_status[] = {
 
 
 static ngx_int_t
-ngx_http_limit_req_handler(ngx_http_request_t *r)
+ngx_http_var_limit_req_handler(ngx_http_request_t *r)
 {
-    uint32_t                     hash;
-    ngx_str_t                    key;
-    ngx_int_t                    rc;
-    ngx_uint_t                   n, excess;
-    ngx_msec_t                   delay;
-    ngx_http_limit_req_ctx_t    *ctx;
-    ngx_http_limit_req_conf_t   *lrcf;
-    ngx_http_limit_req_limit_t  *limit, *limits;
+    uint32_t                         hash;
+    ngx_str_t                        key;
+    ngx_int_t                        rc;
+    ngx_uint_t                       n, excess;
+    ngx_msec_t                       delay;
+    ngx_http_var_limit_req_ctx_t    *ctx;
+    ngx_http_var_limit_req_conf_t   *lrcf;
+    ngx_http_var_limit_req_limit_t  *limit, *limits;
 
     if (r->main->limit_req_status) {
         return NGX_DECLINED;
     }
 
-    lrcf = ngx_http_get_module_loc_conf(r, ngx_http_limit_req_module);
+    lrcf = ngx_http_get_module_loc_conf(r, ngx_http_var_limit_req_module);
     limits = lrcf->limits.elts;
 
     excess = 0;
@@ -225,7 +225,7 @@ ngx_http_limit_req_handler(ngx_http_request_t *r)
         ctx = limit->shm_zone->data;
 
         if (ngx_http_complex_value(r, &ctx->key, &key) != NGX_OK) {
-            ngx_http_limit_req_unlock(limits, n);
+            ngx_http_var_limit_req_unlock(limits, n);
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
 
@@ -245,13 +245,13 @@ ngx_http_limit_req_handler(ngx_http_request_t *r)
 
         ngx_shmtx_lock(&ctx->shpool->mutex);
 
-        rc = ngx_http_limit_req_lookup(limit, hash, &key, &excess,
-                                       (n == lrcf->limits.nelts - 1));
+        rc = ngx_http_var_limit_req_lookup(limit, hash, &key, &excess,
+                                           (n == lrcf->limits.nelts - 1));
 
         ngx_shmtx_unlock(&ctx->shpool->mutex);
 
         ngx_log_debug4(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-                       "limit_req[%ui]: %i %ui.%03ui",
+                       "var_limit_req[%ui]: %i %ui.%03ui",
                        n, rc, excess / 1000, excess % 1000);
 
         if (rc != NGX_AGAIN) {
@@ -273,14 +273,14 @@ ngx_http_limit_req_handler(ngx_http_request_t *r)
                         &limit->shm_zone->shm.name);
         }
 
-        ngx_http_limit_req_unlock(limits, n);
+        ngx_http_var_limit_req_unlock(limits, n);
 
         if (lrcf->dry_run) {
-            r->main->limit_req_status = NGX_HTTP_LIMIT_REQ_REJECTED_DRY_RUN;
+            r->main->limit_req_status = NGX_HTTP_VAR_LIMIT_REQ_REJECTED_DRY_RUN;
             return NGX_DECLINED;
         }
 
-        r->main->limit_req_status = NGX_HTTP_LIMIT_REQ_REJECTED;
+        r->main->limit_req_status = NGX_HTTP_VAR_LIMIT_REQ_REJECTED;
 
         return lrcf->status_code;
     }
@@ -291,10 +291,10 @@ ngx_http_limit_req_handler(ngx_http_request_t *r)
         excess = 0;
     }
 
-    delay = ngx_http_limit_req_account(limits, n, &excess, &limit);
+    delay = ngx_http_var_limit_req_account(limits, n, &excess, &limit);
 
     if (!delay) {
-        r->main->limit_req_status = NGX_HTTP_LIMIT_REQ_PASSED;
+        r->main->limit_req_status = NGX_HTTP_VAR_LIMIT_REQ_PASSED;
         return NGX_DECLINED;
     }
 
@@ -304,11 +304,11 @@ ngx_http_limit_req_handler(ngx_http_request_t *r)
                   excess / 1000, excess % 1000, &limit->shm_zone->shm.name);
 
     if (lrcf->dry_run) {
-        r->main->limit_req_status = NGX_HTTP_LIMIT_REQ_DELAYED_DRY_RUN;
+        r->main->limit_req_status = NGX_HTTP_VAR_LIMIT_REQ_DELAYED_DRY_RUN;
         return NGX_DECLINED;
     }
 
-    r->main->limit_req_status = NGX_HTTP_LIMIT_REQ_DELAYED;
+    r->main->limit_req_status = NGX_HTTP_VAR_LIMIT_REQ_DELAYED;
 
     if (r->connection->read->ready) {
         ngx_post_event(r->connection->read, &ngx_posted_events);
@@ -320,7 +320,7 @@ ngx_http_limit_req_handler(ngx_http_request_t *r)
     }
 
     r->read_event_handler = ngx_http_test_reading;
-    r->write_event_handler = ngx_http_limit_req_delay;
+    r->write_event_handler = ngx_http_var_limit_req_delay;
 
     r->connection->write->delayed = 1;
     ngx_add_timer(r->connection->write, delay);
@@ -330,12 +330,12 @@ ngx_http_limit_req_handler(ngx_http_request_t *r)
 
 
 static void
-ngx_http_limit_req_delay(ngx_http_request_t *r)
+ngx_http_var_limit_req_delay(ngx_http_request_t *r)
 {
     ngx_event_t  *wev;
 
     ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-                   "limit_req delay");
+                   "var_limit_req delay");
 
     wev = r->connection->write;
 
@@ -361,11 +361,11 @@ ngx_http_limit_req_delay(ngx_http_request_t *r)
 
 
 static void
-ngx_http_limit_req_rbtree_insert_value(ngx_rbtree_node_t *temp,
+ngx_http_var_limit_req_rbtree_insert_value(ngx_rbtree_node_t *temp,
     ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel)
 {
-    ngx_rbtree_node_t          **p;
-    ngx_http_limit_req_node_t   *lrn, *lrnt;
+    ngx_rbtree_node_t              **p;
+    ngx_http_var_limit_req_node_t   *lrn, *lrnt;
 
     for ( ;; ) {
 
@@ -379,8 +379,8 @@ ngx_http_limit_req_rbtree_insert_value(ngx_rbtree_node_t *temp,
 
         } else { /* node->key == temp->key */
 
-            lrn = (ngx_http_limit_req_node_t *) &node->color;
-            lrnt = (ngx_http_limit_req_node_t *) &temp->color;
+            lrn = (ngx_http_var_limit_req_node_t *) &node->color;
+            lrnt = (ngx_http_var_limit_req_node_t *) &temp->color;
 
             p = (ngx_memn2cmp(lrn->data, lrnt->data, lrn->len, lrnt->len) < 0)
                 ? &temp->left : &temp->right;
@@ -402,16 +402,16 @@ ngx_http_limit_req_rbtree_insert_value(ngx_rbtree_node_t *temp,
 
 
 static ngx_int_t
-ngx_http_limit_req_lookup(ngx_http_limit_req_limit_t *limit, ngx_uint_t hash,
+ngx_http_var_limit_req_lookup(ngx_http_var_limit_req_limit_t *limit, ngx_uint_t hash,
     ngx_str_t *key, ngx_uint_t *ep, ngx_uint_t account)
 {
-    size_t                      size;
-    ngx_int_t                   rc, excess;
-    ngx_msec_t                  now;
-    ngx_msec_int_t              ms;
-    ngx_rbtree_node_t          *node, *sentinel;
-    ngx_http_limit_req_ctx_t   *ctx;
-    ngx_http_limit_req_node_t  *lr;
+    size_t                          size;
+    ngx_int_t                       rc, excess;
+    ngx_msec_t                      now;
+    ngx_msec_int_t                  ms;
+    ngx_rbtree_node_t              *node, *sentinel;
+    ngx_http_var_limit_req_ctx_t   *ctx;
+    ngx_http_var_limit_req_node_t  *lr;
 
     now = ngx_current_msec;
 
@@ -434,7 +434,7 @@ ngx_http_limit_req_lookup(ngx_http_limit_req_limit_t *limit, ngx_uint_t hash,
 
         /* hash == node->key */
 
-        lr = (ngx_http_limit_req_node_t *) &node->color;
+        lr = (ngx_http_var_limit_req_node_t *) &node->color;
 
         rc = ngx_memn2cmp(key->data, lr->data, key->len, (size_t) lr->len);
 
@@ -486,15 +486,15 @@ ngx_http_limit_req_lookup(ngx_http_limit_req_limit_t *limit, ngx_uint_t hash,
     *ep = 0;
 
     size = offsetof(ngx_rbtree_node_t, color)
-           + offsetof(ngx_http_limit_req_node_t, data)
+           + offsetof(ngx_http_var_limit_req_node_t, data)
            + key->len;
 
-    ngx_http_limit_req_expire(ctx, 1);
+    ngx_http_var_limit_req_expire(ctx, 1);
 
     node = ngx_slab_alloc_locked(ctx->shpool, size);
 
     if (node == NULL) {
-        ngx_http_limit_req_expire(ctx, 0);
+        ngx_http_var_limit_req_expire(ctx, 0);
 
         node = ngx_slab_alloc_locked(ctx->shpool, size);
         if (node == NULL) {
@@ -506,7 +506,7 @@ ngx_http_limit_req_lookup(ngx_http_limit_req_limit_t *limit, ngx_uint_t hash,
 
     node->key = hash;
 
-    lr = (ngx_http_limit_req_node_t *) &node->color;
+    lr = (ngx_http_var_limit_req_node_t *) &node->color;
 
     lr->len = (u_short) key->len;
     lr->excess = 0;
@@ -533,14 +533,14 @@ ngx_http_limit_req_lookup(ngx_http_limit_req_limit_t *limit, ngx_uint_t hash,
 
 
 static ngx_msec_t
-ngx_http_limit_req_account(ngx_http_limit_req_limit_t *limits, ngx_uint_t n,
-    ngx_uint_t *ep, ngx_http_limit_req_limit_t **limit)
+ngx_http_var_limit_req_account(ngx_http_var_limit_req_limit_t *limits, ngx_uint_t n,
+    ngx_uint_t *ep, ngx_http_var_limit_req_limit_t **limit)
 {
     ngx_int_t                   excess;
     ngx_msec_t                  now, delay, max_delay;
     ngx_msec_int_t              ms;
-    ngx_http_limit_req_ctx_t   *ctx;
-    ngx_http_limit_req_node_t  *lr;
+    ngx_http_var_limit_req_ctx_t   *ctx;
+    ngx_http_var_limit_req_node_t  *lr;
 
     excess = *ep;
 
@@ -607,9 +607,9 @@ ngx_http_limit_req_account(ngx_http_limit_req_limit_t *limits, ngx_uint_t n,
 
 
 static void
-ngx_http_limit_req_unlock(ngx_http_limit_req_limit_t *limits, ngx_uint_t n)
+ngx_http_var_limit_req_unlock(ngx_http_var_limit_req_limit_t *limits, ngx_uint_t n)
 {
-    ngx_http_limit_req_ctx_t  *ctx;
+    ngx_http_var_limit_req_ctx_t  *ctx;
 
     while (n--) {
         ctx = limits[n].shm_zone->data;
@@ -630,14 +630,14 @@ ngx_http_limit_req_unlock(ngx_http_limit_req_limit_t *limits, ngx_uint_t n)
 
 
 static void
-ngx_http_limit_req_expire(ngx_http_limit_req_ctx_t *ctx, ngx_uint_t n)
+ngx_http_var_limit_req_expire(ngx_http_var_limit_req_ctx_t *ctx, ngx_uint_t n)
 {
-    ngx_int_t                   excess;
-    ngx_msec_t                  now;
-    ngx_queue_t                *q;
-    ngx_msec_int_t              ms;
-    ngx_rbtree_node_t          *node;
-    ngx_http_limit_req_node_t  *lr;
+    ngx_int_t                       excess;
+    ngx_msec_t                      now;
+    ngx_queue_t                    *q;
+    ngx_msec_int_t                  ms;
+    ngx_rbtree_node_t              *node;
+    ngx_http_var_limit_req_node_t  *lr;
 
     now = ngx_current_msec;
 
@@ -655,7 +655,7 @@ ngx_http_limit_req_expire(ngx_http_limit_req_ctx_t *ctx, ngx_uint_t n)
 
         q = ngx_queue_last(&ctx->sh->queue);
 
-        lr = ngx_queue_data(q, ngx_http_limit_req_node_t, queue);
+        lr = ngx_queue_data(q, ngx_http_var_limit_req_node_t, queue);
 
         if (lr->count) {
 
@@ -696,12 +696,12 @@ ngx_http_limit_req_expire(ngx_http_limit_req_ctx_t *ctx, ngx_uint_t n)
 
 
 static ngx_int_t
-ngx_http_limit_req_init_zone(ngx_shm_zone_t *shm_zone, void *data)
+ngx_http_var_limit_req_init_zone(ngx_shm_zone_t *shm_zone, void *data)
 {
-    ngx_http_limit_req_ctx_t  *octx = data;
+    ngx_http_var_limit_req_ctx_t  *octx = data;
 
-    size_t                     len;
-    ngx_http_limit_req_ctx_t  *ctx;
+    size_t                         len;
+    ngx_http_var_limit_req_ctx_t  *ctx;
 
     ctx = shm_zone->data;
 
@@ -712,7 +712,7 @@ ngx_http_limit_req_init_zone(ngx_shm_zone_t *shm_zone, void *data)
                != 0)
         {
             ngx_log_error(NGX_LOG_EMERG, shm_zone->shm.log, 0,
-                          "limit_req \"%V\" uses the \"%V\" key "
+                          "var_limit_req \"%V\" uses the \"%V\" key "
                           "while previously it used the \"%V\" key",
                           &shm_zone->shm.name, &ctx->key.value,
                           &octx->key.value);
@@ -733,7 +733,7 @@ ngx_http_limit_req_init_zone(ngx_shm_zone_t *shm_zone, void *data)
         return NGX_OK;
     }
 
-    ctx->sh = ngx_slab_alloc(ctx->shpool, sizeof(ngx_http_limit_req_shctx_t));
+    ctx->sh = ngx_slab_alloc(ctx->shpool, sizeof(ngx_http_var_limit_req_shctx_t));
     if (ctx->sh == NULL) {
         return NGX_ERROR;
     }
@@ -741,7 +741,7 @@ ngx_http_limit_req_init_zone(ngx_shm_zone_t *shm_zone, void *data)
     ctx->shpool->data = ctx->sh;
 
     ngx_rbtree_init(&ctx->sh->rbtree, &ctx->sh->sentinel,
-                    ngx_http_limit_req_rbtree_insert_value);
+                    ngx_http_var_limit_req_rbtree_insert_value);
 
     ngx_queue_init(&ctx->sh->queue);
 
@@ -762,7 +762,7 @@ ngx_http_limit_req_init_zone(ngx_shm_zone_t *shm_zone, void *data)
 
 
 static ngx_int_t
-ngx_http_limit_req_status_variable(ngx_http_request_t *r,
+ngx_http_var_limit_req_status_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data)
 {
     if (r->main->limit_req_status == 0) {
@@ -773,19 +773,19 @@ ngx_http_limit_req_status_variable(ngx_http_request_t *r,
     v->valid = 1;
     v->no_cacheable = 0;
     v->not_found = 0;
-    v->len = ngx_http_limit_req_status[r->main->limit_req_status - 1].len;
-    v->data = ngx_http_limit_req_status[r->main->limit_req_status - 1].data;
+    v->len = ngx_http_var_limit_req_status[r->main->limit_req_status - 1].len;
+    v->data = ngx_http_var_limit_req_status[r->main->limit_req_status - 1].data;
 
     return NGX_OK;
 }
 
 
 static void *
-ngx_http_limit_req_create_conf(ngx_conf_t *cf)
+ngx_http_var_limit_req_create_conf(ngx_conf_t *cf)
 {
-    ngx_http_limit_req_conf_t  *conf;
+    ngx_http_var_limit_req_conf_t  *conf;
 
-    conf = ngx_pcalloc(cf->pool, sizeof(ngx_http_limit_req_conf_t));
+    conf = ngx_pcalloc(cf->pool, sizeof(ngx_http_var_limit_req_conf_t));
     if (conf == NULL) {
         return NULL;
     }
@@ -805,10 +805,10 @@ ngx_http_limit_req_create_conf(ngx_conf_t *cf)
 
 
 static char *
-ngx_http_limit_req_merge_conf(ngx_conf_t *cf, void *parent, void *child)
+ngx_http_var_limit_req_merge_conf(ngx_conf_t *cf, void *parent, void *child)
 {
-    ngx_http_limit_req_conf_t *prev = parent;
-    ngx_http_limit_req_conf_t *conf = child;
+    ngx_http_var_limit_req_conf_t *prev = parent;
+    ngx_http_var_limit_req_conf_t *conf = child;
 
     if (conf->limits.elts == NULL) {
         conf->limits = prev->limits;
@@ -830,7 +830,7 @@ ngx_http_limit_req_merge_conf(ngx_conf_t *cf, void *parent, void *child)
 
 
 static char *
-ngx_http_limit_req_zone(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+ngx_http_var_limit_req_zone(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
     u_char                            *p;
     size_t                             len;
@@ -839,12 +839,12 @@ ngx_http_limit_req_zone(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     ngx_int_t                          rate, scale;
     ngx_uint_t                         i;
     ngx_shm_zone_t                    *shm_zone;
-    ngx_http_limit_req_ctx_t          *ctx;
+    ngx_http_var_limit_req_ctx_t      *ctx;
     ngx_http_compile_complex_value_t   ccv;
 
     value = cf->args->elts;
 
-    ctx = ngx_pcalloc(cf->pool, sizeof(ngx_http_limit_req_ctx_t));
+    ctx = ngx_pcalloc(cf->pool, sizeof(ngx_http_var_limit_req_ctx_t));
     if (ctx == NULL) {
         return NGX_CONF_ERROR;
     }
@@ -939,7 +939,7 @@ ngx_http_limit_req_zone(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     ctx->rate = rate * 1000 / scale;
 
     shm_zone = ngx_shared_memory_add(cf, &name, size,
-                                     &ngx_http_limit_req_module);
+                                     &ngx_http_var_limit_req_module);
     if (shm_zone == NULL) {
         return NGX_CONF_ERROR;
     }
@@ -953,7 +953,7 @@ ngx_http_limit_req_zone(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         return NGX_CONF_ERROR;
     }
 
-    shm_zone->init = ngx_http_limit_req_init_zone;
+    shm_zone->init = ngx_http_var_limit_req_init_zone;
     shm_zone->data = ctx;
 
     return NGX_CONF_OK;
@@ -961,15 +961,15 @@ ngx_http_limit_req_zone(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
 
 static char *
-ngx_http_limit_req(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+ngx_http_var_limit_req(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
-    ngx_http_limit_req_conf_t  *lrcf = conf;
+    ngx_http_var_limit_req_conf_t  *lrcf = conf;
 
-    ngx_int_t                    burst, delay;
-    ngx_str_t                   *value, s;
-    ngx_uint_t                   i;
-    ngx_shm_zone_t              *shm_zone;
-    ngx_http_limit_req_limit_t  *limit, *limits;
+    ngx_int_t                        burst, delay;
+    ngx_str_t                       *value, s;
+    ngx_uint_t                       i;
+    ngx_shm_zone_t                  *shm_zone;
+    ngx_http_var_limit_req_limit_t  *limit, *limits;
 
     value = cf->args->elts;
 
@@ -985,7 +985,7 @@ ngx_http_limit_req(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             s.data = value[i].data + 5;
 
             shm_zone = ngx_shared_memory_add(cf, &s, 0,
-                                             &ngx_http_limit_req_module);
+                                             &ngx_http_var_limit_req_module);
             if (shm_zone == NULL) {
                 return NGX_CONF_ERROR;
             }
@@ -1038,7 +1038,7 @@ ngx_http_limit_req(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     if (limits == NULL) {
         if (ngx_array_init(&lrcf->limits, cf->pool, 1,
-                           sizeof(ngx_http_limit_req_limit_t))
+                           sizeof(ngx_http_var_limit_req_limit_t))
             != NGX_OK)
         {
             return NGX_CONF_ERROR;
@@ -1065,11 +1065,11 @@ ngx_http_limit_req(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
 
 static ngx_int_t
-ngx_http_limit_req_add_variables(ngx_conf_t *cf)
+ngx_http_var_limit_req_add_variables(ngx_conf_t *cf)
 {
     ngx_http_variable_t  *var, *v;
 
-    for (v = ngx_http_limit_req_vars; v->name.len; v++) {
+    for (v = ngx_http_var_limit_req_vars; v->name.len; v++) {
         var = ngx_http_add_variable(cf, &v->name, v->flags);
         if (var == NULL) {
             return NGX_ERROR;
@@ -1084,7 +1084,7 @@ ngx_http_limit_req_add_variables(ngx_conf_t *cf)
 
 
 static ngx_int_t
-ngx_http_limit_req_init(ngx_conf_t *cf)
+ngx_http_var_limit_req_init(ngx_conf_t *cf)
 {
     ngx_http_handler_pt        *h;
     ngx_http_core_main_conf_t  *cmcf;
@@ -1096,7 +1096,7 @@ ngx_http_limit_req_init(ngx_conf_t *cf)
         return NGX_ERROR;
     }
 
-    *h = ngx_http_limit_req_handler;
+    *h = ngx_http_var_limit_req_handler;
 
     return NGX_OK;
 }
