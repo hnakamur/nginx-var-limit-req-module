@@ -44,6 +44,7 @@ typedef struct {
     ngx_uint_t                       rate;
     ngx_http_complex_value_t         rate_var;
     ngx_http_complex_value_t         burst_var;
+    ngx_http_complex_value_t         dry_run_var;
     ngx_http_complex_value_t         key;
     ngx_http_var_limit_req_node_t   *node;
 } ngx_http_var_limit_req_ctx_t;
@@ -109,7 +110,7 @@ static ngx_conf_num_bounds_t  ngx_http_var_limit_req_status_bounds = {
 static ngx_command_t  ngx_http_var_limit_req_commands[] = {
 
     { ngx_string("var_limit_req_zone"),
-      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE3|NGX_CONF_TAKE4|NGX_CONF_TAKE5,
+      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE3|NGX_CONF_TAKE4|NGX_CONF_TAKE5|NGX_CONF_TAKE6,
       ngx_http_var_limit_req_zone,
       0,
       0,
@@ -200,7 +201,7 @@ static ngx_int_t
 ngx_http_var_limit_req_handler(ngx_http_request_t *r)
 {
     uint32_t                         hash;
-    ngx_str_t                        key, rate_var, burst_var;
+    ngx_str_t                        key, rate_var, burst_var, dry_run_var;
     ngx_int_t                        rc;
     ngx_uint_t                       n, excess, rate, scale, burst;
     ngx_msec_t                       delay;
@@ -209,6 +210,7 @@ ngx_http_var_limit_req_handler(ngx_http_request_t *r)
     ngx_http_var_limit_req_limit_t  *limit, *limits;
     u_char                          *p;
     size_t                           len;
+    ngx_flag_t                       dry_run;
 
     if (r->main->limit_req_status) {
         return NGX_DECLINED;
@@ -225,6 +227,8 @@ ngx_http_var_limit_req_handler(ngx_http_request_t *r)
 #if (NGX_SUPPRESS_WARN)
     limit = NULL;
 #endif
+
+    dry_run = lrcf->dry_run;
 
     for (n = 0; n < lrcf->limits.nelts; n++) {
 
@@ -292,8 +296,27 @@ ngx_http_var_limit_req_handler(ngx_http_request_t *r)
             burst = ngx_atoi(burst_var.data, burst_var.len);
             if (burst <= 0) {
                 ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                            "invalid burst_var value \"%V\"", &burst_var);
+                              "invalid burst_var value \"%V\"", &burst_var);
                 return NGX_HTTP_INTERNAL_SERVER_ERROR;
+            }
+        }
+
+        if (ngx_http_complex_value(r, &ctx->dry_run_var, &dry_run_var) != NGX_OK) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        if (dry_run_var.len != 0) {
+            if (ngx_strcasecmp(dry_run_var.data, (u_char *) "on") == 0) {
+                dry_run = 1;
+
+            } else if (ngx_strcasecmp(dry_run_var.data, (u_char *) "off") == 0) {
+                dry_run = 0;
+
+            } else {
+                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                              "the value of the \"%V\" key "
+                              "must be \"on\" or \"off\": \"%V\"",
+                              &ctx->dry_run_var.value, &dry_run_var);
+                continue;
             }
         }
 
@@ -323,14 +346,14 @@ ngx_http_var_limit_req_handler(ngx_http_request_t *r)
         if (rc == NGX_BUSY) {
             ngx_log_error(lrcf->limit_log_level, r->connection->log, 0,
                         "limiting requests%s, excess: %ui.%03ui by zone \"%V\"",
-                        lrcf->dry_run ? ", dry run" : "",
+                        dry_run ? ", dry run" : "",
                         excess / 1000, excess % 1000,
                         &limit->shm_zone->shm.name);
         }
 
         ngx_http_var_limit_req_unlock(limits, n);
 
-        if (lrcf->dry_run) {
+        if (dry_run) {
             r->main->limit_req_status = NGX_HTTP_VAR_LIMIT_REQ_REJECTED_DRY_RUN;
             return NGX_DECLINED;
         }
@@ -355,10 +378,10 @@ ngx_http_var_limit_req_handler(ngx_http_request_t *r)
 
     ngx_log_error(lrcf->delay_log_level, r->connection->log, 0,
                   "delaying request%s, excess: %ui.%03ui, by zone \"%V\"",
-                  lrcf->dry_run ? ", dry run" : "",
+                  dry_run ? ", dry run" : "",
                   excess / 1000, excess % 1000, &limit->shm_zone->shm.name);
 
-    if (lrcf->dry_run) {
+    if (dry_run) {
         r->main->limit_req_status = NGX_HTTP_VAR_LIMIT_REQ_DELAYED_DRY_RUN;
         return NGX_DECLINED;
     }
@@ -1000,6 +1023,19 @@ ngx_http_var_limit_req_zone(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             ccv.value->data = value[i].data + 10;
             ccv.value->len = value[i].len - 10;
             ccv.complex_value = &ctx->burst_var;
+
+            if (ngx_http_compile_complex_value(&ccv) != NGX_OK) {
+                return NGX_CONF_ERROR;
+            }
+
+            continue;
+        }
+
+        if (ngx_strncmp(value[i].data, "dry_run_var=", 12) == 0) {
+
+            ccv.value->data = value[i].data + 12;
+            ccv.value->len = value[i].len - 12;
+            ccv.complex_value = &ctx->dry_run_var;
 
             if (ngx_http_compile_complex_value(&ccv) != NGX_OK) {
                 return NGX_CONF_ERROR;
