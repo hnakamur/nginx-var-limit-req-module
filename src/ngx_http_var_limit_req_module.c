@@ -43,6 +43,7 @@ typedef struct {
     /* integer value, 1 corresponds to 0.001 r/s */
     ngx_uint_t                       rate;
     ngx_http_complex_value_t         rate_var;
+    ngx_http_complex_value_t         burst_var;
     ngx_http_complex_value_t         key;
     ngx_http_var_limit_req_node_t   *node;
 } ngx_http_var_limit_req_ctx_t;
@@ -69,7 +70,7 @@ static void ngx_http_var_limit_req_delay(ngx_http_request_t *r);
 static ngx_int_t ngx_http_var_limit_req_lookup(ngx_http_request_t *r,
     ngx_http_var_limit_req_limit_t *limit,
     ngx_uint_t hash, ngx_str_t *key, ngx_uint_t *ep, ngx_uint_t account,
-    ngx_uint_t rate);
+    ngx_uint_t rate, ngx_uint_t burst);
 static ngx_msec_t ngx_http_var_limit_req_account(
     ngx_http_var_limit_req_limit_t *limits, ngx_uint_t n, ngx_uint_t *ep,
     ngx_http_var_limit_req_limit_t **limit, ngx_uint_t rate);
@@ -108,7 +109,7 @@ static ngx_conf_num_bounds_t  ngx_http_var_limit_req_status_bounds = {
 static ngx_command_t  ngx_http_var_limit_req_commands[] = {
 
     { ngx_string("var_limit_req_zone"),
-      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE3|NGX_CONF_TAKE4,
+      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE3|NGX_CONF_TAKE4|NGX_CONF_TAKE5,
       ngx_http_var_limit_req_zone,
       0,
       0,
@@ -199,9 +200,9 @@ static ngx_int_t
 ngx_http_var_limit_req_handler(ngx_http_request_t *r)
 {
     uint32_t                         hash;
-    ngx_str_t                        key, rate_var;
+    ngx_str_t                        key, rate_var, burst_var;
     ngx_int_t                        rc;
-    ngx_uint_t                       n, excess, rate, scale;
+    ngx_uint_t                       n, excess, rate, scale, burst;
     ngx_msec_t                       delay;
     ngx_http_var_limit_req_ctx_t    *ctx;
     ngx_http_var_limit_req_conf_t   *lrcf;
@@ -251,42 +252,56 @@ ngx_http_var_limit_req_handler(ngx_http_request_t *r)
         hash = ngx_crc32_short(key.data, key.len);
 
         rate = ctx->rate;
-
         if (ngx_http_complex_value(r, &ctx->rate_var, &rate_var) != NGX_OK) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                           "could not get rate_var value");
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
-
         if (rate_var.len != 0) {
-            len = rate_var.len;
-            p = rate_var.data + len - 3;
-
             scale = 1;
+            len = rate_var.len;
+            if (len >= 3) {
+                p = rate_var.data + len - 3;
 
-            if (ngx_strncmp(p, "r/s", 3) == 0) {
-                len -= 3;
+                if (ngx_strncmp(p, "r/s", 3) == 0) {
+                    len -= 3;
 
-            } else if (ngx_strncmp(p, "r/m", 3) == 0) {
-                scale = 60;
-                len -= 3;
+                } else if (ngx_strncmp(p, "r/m", 3) == 0) {
+                    scale = 60;
+                    len -= 3;
+                }
             }
 
             rate = ngx_atoi(rate_var.data, len);
             if (rate <= 0) {
                 ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                              "invalid rate_var value \"%V\"", &rate_var);
+                            "invalid rate_var value \"%V\"", &rate_var);
                 return NGX_HTTP_INTERNAL_SERVER_ERROR;
             }
 
             rate *= 1000 / scale;
         }
 
+        burst = limit->burst;
+        if (ngx_http_complex_value(r, &ctx->burst_var, &burst_var) != NGX_OK) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                          "could not get burst_var value");
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        if (rate_var.len != 0) {
+            burst = ngx_atoi(burst_var.data, burst_var.len);
+            if (burst <= 0) {
+                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                            "invalid burst_var value \"%V\"", &burst_var);
+                return NGX_HTTP_INTERNAL_SERVER_ERROR;
+            }
+        }
+
         ngx_shmtx_lock(&ctx->shpool->mutex);
 
         rc = ngx_http_var_limit_req_lookup(r, limit, hash, &key, &excess,
                                            (n == lrcf->limits.nelts - 1),
-                                           rate);
+                                           rate, burst);
 
         ngx_shmtx_unlock(&ctx->shpool->mutex);
 
@@ -445,7 +460,7 @@ static ngx_int_t
 ngx_http_var_limit_req_lookup(ngx_http_request_t *r,
     ngx_http_var_limit_req_limit_t *limit, ngx_uint_t hash,
     ngx_str_t *key, ngx_uint_t *ep, ngx_uint_t account,
-    ngx_uint_t rate)
+    ngx_uint_t rate, ngx_uint_t burst)
 {
     size_t                          size;
     ngx_int_t                       rc, excess;
@@ -501,7 +516,7 @@ ngx_http_var_limit_req_lookup(ngx_http_request_t *r,
 
             *ep = excess;
 
-            if ((ngx_uint_t) excess > limit->burst) {
+            if ((ngx_uint_t) excess > burst) {
                 return NGX_BUSY;
             }
 
@@ -972,6 +987,19 @@ ngx_http_var_limit_req_zone(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             ccv.value->data = value[i].data + 9;
             ccv.value->len = value[i].len - 9;
             ccv.complex_value = &ctx->rate_var;
+
+            if (ngx_http_compile_complex_value(&ccv) != NGX_OK) {
+                return NGX_CONF_ERROR;
+            }
+
+            continue;
+        }
+
+        if (ngx_strncmp(value[i].data, "burst_var=", 10) == 0) {
+
+            ccv.value->data = value[i].data + 10;
+            ccv.value->len = value[i].len - 10;
+            ccv.complex_value = &ctx->burst_var;
 
             if (ngx_http_compile_complex_value(&ccv) != NGX_OK) {
                 return NGX_CONF_ERROR;
