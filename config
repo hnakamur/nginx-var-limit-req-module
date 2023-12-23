@@ -7,7 +7,7 @@ VAR_LIMIT_REQ_SRCS="                                                            
 VAR_LIMIT_REQ_DEPS=""
 
 if [ -n "$ngx_module_link" ]; then
-    ngx_module_type=HTTP_AUX_FILTER
+    ngx_module_type=HTTP
     ngx_module_name=$ngx_addon_name
     ngx_module_incs=
     ngx_module_deps="$VAR_LIMIT_REQ_DEPS"
