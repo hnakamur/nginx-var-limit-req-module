@@ -1007,8 +1007,13 @@ ngx_http_var_limit_req_zone(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
         if (ngx_strncmp(value[i].data, "rate_var=", 9) == 0) {
 
-            ccv.value->data = value[i].data + 9;
-            ccv.value->len = value[i].len - 9;
+            s.data = value[i].data + 9;
+            s.len = value[i].len - 9;
+
+            ngx_memzero(&ccv, sizeof(ngx_http_compile_complex_value_t));
+
+            ccv.cf = cf;
+            ccv.value = &s;
             ccv.complex_value = &ctx->rate_var;
 
             if (ngx_http_compile_complex_value(&ccv) != NGX_OK) {
@@ -1020,8 +1025,13 @@ ngx_http_var_limit_req_zone(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
         if (ngx_strncmp(value[i].data, "burst_var=", 10) == 0) {
 
-            ccv.value->data = value[i].data + 10;
-            ccv.value->len = value[i].len - 10;
+            s.data = value[i].data + 10;
+            s.len = value[i].len - 10;
+
+            ngx_memzero(&ccv, sizeof(ngx_http_compile_complex_value_t));
+
+            ccv.cf = cf;
+            ccv.value = &s;
             ccv.complex_value = &ctx->burst_var;
 
             if (ngx_http_compile_complex_value(&ccv) != NGX_OK) {
@@ -1033,8 +1043,13 @@ ngx_http_var_limit_req_zone(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
         if (ngx_strncmp(value[i].data, "dry_run_var=", 12) == 0) {
 
-            ccv.value->data = value[i].data + 12;
-            ccv.value->len = value[i].len - 12;
+            s.data = value[i].data + 12;
+            s.len = value[i].len - 12;
+
+            ngx_memzero(&ccv, sizeof(ngx_http_compile_complex_value_t));
+
+            ccv.cf = cf;
+            ccv.value = &s;
             ccv.complex_value = &ctx->dry_run_var;
 
             if (ngx_http_compile_complex_value(&ccv) != NGX_OK) {
