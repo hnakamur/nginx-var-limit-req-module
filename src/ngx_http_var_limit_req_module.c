@@ -54,6 +54,7 @@ typedef struct {
     ngx_http_complex_value_t         rate_var;
     ngx_http_complex_value_t         burst_var;
     ngx_http_complex_value_t         dry_run_var;
+    ngx_http_complex_value_t         status_var;
     ngx_http_complex_value_t         key;
     ngx_http_var_limit_req_node_t   *node;
 } ngx_http_var_limit_req_ctx_t;
@@ -93,6 +94,8 @@ typedef struct {
 } ngx_http_var_limit_req_top_item_t;
 
 
+static ngx_uint_t ngx_http_var_limit_req_get_status(ngx_http_request_t *r,
+    ngx_http_var_limit_req_ctx_t *ctx);
 static void ngx_http_var_limit_req_delay(ngx_http_request_t *r);
 static ngx_int_t ngx_http_var_limit_req_lookup(ngx_http_request_t *r,
     ngx_http_var_limit_req_limit_t *limit,
@@ -149,7 +152,8 @@ static ngx_conf_num_bounds_t  ngx_http_var_limit_req_status_bounds = {
 static ngx_command_t  ngx_http_var_limit_req_commands[] = {
 
     { ngx_string("var_limit_req_zone"),
-      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE3|NGX_CONF_TAKE4|NGX_CONF_TAKE5|NGX_CONF_TAKE6,
+      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE3|NGX_CONF_TAKE4|NGX_CONF_TAKE5
+          |NGX_CONF_TAKE6|NGX_CONF_TAKE7,
       ngx_http_var_limit_req_zone,
       0,
       0,
@@ -413,7 +417,7 @@ ngx_http_var_limit_req_handler(ngx_http_request_t *r)
 
         r->main->limit_req_status = NGX_HTTP_VAR_LIMIT_REQ_REJECTED;
 
-        return lrcf->status_code;
+        return ngx_http_var_limit_req_get_status(r, ctx);
     }
 
     /* rc == NGX_AGAIN || rc == NGX_OK */
@@ -457,6 +461,28 @@ ngx_http_var_limit_req_handler(ngx_http_request_t *r)
     ngx_add_timer(r->connection->write, delay);
 
     return NGX_AGAIN;
+}
+
+
+static ngx_uint_t
+ngx_http_var_limit_req_get_status(ngx_http_request_t *r,
+    ngx_http_var_limit_req_ctx_t *ctx)
+{
+    ngx_http_var_limit_req_conf_t      *lrcf;
+    ngx_str_t                           status_var;
+    ngx_int_t                           status;
+
+    if (ngx_http_complex_value(r, &ctx->status_var, &status_var) != NGX_OK) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+    if (status_var.len != 0) {
+        status = ngx_atoi(status_var.data, status_var.len);
+        if (status >= 400 && status <= 599) {
+            return (ngx_uint_t) status;
+        }
+    }
+    lrcf = ngx_http_get_module_loc_conf(r, ngx_http_var_limit_req_module);
+    return lrcf->status_code;
 }
 
 
@@ -1125,6 +1151,24 @@ ngx_http_var_limit_req_zone(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             continue;
         }
 
+        if (ngx_strncmp(value[i].data, "status_var=", 11) == 0) {
+
+            s.data = value[i].data + 11;
+            s.len = value[i].len - 11;
+
+            ngx_memzero(&ccv, sizeof(ngx_http_compile_complex_value_t));
+
+            ccv.cf = cf;
+            ccv.value = &s;
+            ccv.complex_value = &ctx->status_var;
+
+            if (ngx_http_compile_complex_value(&ccv) != NGX_OK) {
+                return NGX_CONF_ERROR;
+            }
+
+            continue;
+        }
+
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
                            "invalid parameter \"%V\"", &value[i]);
         return NGX_CONF_ERROR;
@@ -1348,6 +1392,8 @@ ngx_http_var_limit_req_top_build_items(ngx_http_request_t *r,
 
     now = ngx_current_msec;
 
+    // TODO: keep only top n whlie looping using binary search
+
     for (node = ngx_rbtree_min(root, sentinel);
          node;
          node = ngx_rbtree_next(rbtree, node))
@@ -1390,6 +1436,8 @@ ngx_http_var_limit_req_top_build_items(ngx_http_request_t *r,
         }
     }
 
+    // TODO: strdup for only top n entries
+
     return NGX_OK;
 }
 
@@ -1427,6 +1475,7 @@ ngx_http_var_limit_req_top_build_response(ngx_http_request_t *r,
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
+    // TODO: remove sort here
     ngx_sort(items->elts, items->nelts,
         sizeof(ngx_http_var_limit_req_top_item_t),
         ngx_http_var_limit_req_top_item_cmp);
@@ -1470,12 +1519,19 @@ ngx_http_var_limit_req_top_item_cmp(const void *a, const void *b)
     item_a = a;
     item_b = b;
 
-    /* order by adjusted_excess desc, last desc, key asc */
+    /* order by adjusted_excess desc, raw_excess desc, last desc, key asc */
 
     if (item_a->adjusted_excess > item_b->adjusted_excess) {
         return -1;
     }
     if (item_a->adjusted_excess < item_b->adjusted_excess) {
+        return 1;
+    }
+
+    if (item_a->raw_excess > item_b->raw_excess) {
+        return -1;
+    }
+    if (item_a->raw_excess < item_b->raw_excess) {
         return 1;
     }
 
