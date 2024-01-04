@@ -1416,9 +1416,6 @@ ngx_http_var_limit_req_top_build_items(ngx_http_request_t *r,
 
     now = ngx_current_msec;
 
-    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
-                    "var_limit_req_top before scanning tree");
-
     /* keep only top n items whlie looping using binary search */
     for (node = ngx_rbtree_min(root, sentinel);
          node;
@@ -1438,14 +1435,6 @@ ngx_http_var_limit_req_top_build_items(ngx_http_request_t *r,
         tmp_item.burst = lcn->burst;
 
         i = ngx_http_var_limit_req_binary_search(items, &tmp_item);
-        ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
-                      "var_limit_req_top i=%d, top_n=%d, nelts=%d, "
-                      "adjusted_excess=%d, raw_excess=%d, "
-                      "last=%d, key=\"%V\"",
-                      i, top_n, items->nelts,
-                      tmp_item.adjusted_excess, tmp_item.raw_excess,
-                      tmp_item.last, &tmp_item.key);
-
         if (i > top_n) {
             continue;
         }
@@ -1487,9 +1476,6 @@ ngx_http_var_limit_req_top_build_items(ngx_http_request_t *r,
         *item = tmp_item;
     }
 
-    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
-                    "var_limit_req_top after scanning tree");
-
     /* Copy top n entries keys */
     for (i = 0; i < items->nelts; ++i) {
         item = ngx_array_item(items, i);
@@ -1516,20 +1502,9 @@ ngx_http_var_limit_req_binary_search(ngx_array_t *items,
     one_past_max_index = items->nelts;
     while (one_past_max_index != min_index) {
         index = (min_index + one_past_max_index) / 2;
-        ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
-                      "binsearch, min_index=%d, one_past_max_index=%d, index=%d",
-                      min_index, one_past_max_index, index);
         item2 = ngx_array_item(items, index);
         res = ngx_http_var_limit_req_top_item_cmp(item, item2);
-        ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
-                      "binsearch, lhs adjusted_excess=%d, raw_excess=%d, last=%d, key=\"%V\"",
-                      item->adjusted_excess, item->raw_excess, item->last, &item->key);
-        ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
-                      "binsearch, rhs adjusted_excess=%d, raw_excess=%d, last=%d, key=\"%V\", res=%d",
-                      item2->adjusted_excess, item2->raw_excess, item2->last, &item2->key, res);
         if (res == 0) {
-            ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
-                        "binsearch, ret#1=%d", index);
             return index;
         }
         if (res < 0) {
@@ -1538,8 +1513,6 @@ ngx_http_var_limit_req_binary_search(ngx_array_t *items,
             min_index = index + 1;
         }
     }
-    ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
-                "binsearch, ret#2=%d", min_index);
     return min_index;
 }
 
@@ -1586,8 +1559,6 @@ ngx_http_var_limit_req_top_build_response(ngx_http_request_t *r,
         item = &items_ptr[i];
         ngx_http_var_limit_req_format_http_time(item->last_time.sec,
                                                 http_time_buf);
-        ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
-                      "http_time_buf=\"%s\"", http_time_buf);
         b->last = ngx_sprintf(b->last,
                               "key:%V\tadjusted_excess:%ud"
                               "\traw_excess:%ud\trate:%ud\tburst:%ud"
