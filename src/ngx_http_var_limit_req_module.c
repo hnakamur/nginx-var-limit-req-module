@@ -78,6 +78,7 @@ typedef struct {
 
     ngx_shm_zone_t              *top_shm_zone;
     ngx_uint_t                   default_n;
+    ngx_int_t                    arg_n_var_index;
 } ngx_http_var_limit_req_conf_t;
 
 
@@ -1390,16 +1391,25 @@ ngx_http_var_limit_req_top_build_items(ngx_http_request_t *r,
     ngx_rbtree_t *rbtree, ngx_array_t *items)
 {
     ngx_http_var_limit_req_conf_t      *lrcf;
+    ngx_http_variable_value_t          *arg_n_val;
     ngx_rbtree_node_t                  *node, *root, *sentinel;
     ngx_http_var_limit_req_node_t      *lcn;
-    ngx_int_t                           rc;
+    ngx_int_t                           rc, arg_n;
     ngx_uint_t                          i, top_n, old_nelts;
     ngx_http_var_limit_req_top_item_t  *item, tmp_item;
     ngx_msec_t                          now;
     ngx_msec_int_t                      ms;
 
     lrcf = ngx_http_get_module_loc_conf(r, ngx_http_var_limit_req_module);
+
     top_n = lrcf->default_n;
+    arg_n_val = ngx_http_get_flushed_variable(r, lrcf->arg_n_var_index);
+    if (arg_n_val->valid) {
+        arg_n = ngx_atoi(arg_n_val->data, arg_n_val->len);
+        if (arg_n != NGX_ERROR) {
+            top_n = (ngx_uint_t)arg_n;
+        }
+    }
 
     sentinel = rbtree->sentinel;
     root = rbtree->root;
@@ -1653,6 +1663,7 @@ ngx_http_var_limit_req_top(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     ngx_uint_t                        i;
     ngx_str_t                         default_n_str;
     ngx_int_t                         default_n = 0;
+    static ngx_str_t                  arg_n_name = ngx_string("arg_n");
 
     ngx_str_t  *value;
 
@@ -1696,6 +1707,7 @@ ngx_http_var_limit_req_top(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     }
 
     lrcf->default_n = (ngx_uint_t) default_n;
+    lrcf->arg_n_var_index = ngx_http_get_variable_index(cf, &arg_n_name);
 
     clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
     clcf->handler = ngx_http_var_limit_req_top_handler;
