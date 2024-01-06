@@ -1644,12 +1644,15 @@ ngx_http_var_limit_req_status_build_response_body(ngx_http_request_t *r,
         ngx_http_var_limit_req_format_http_time(item->last_time.sec,
                                                 http_time_buf);
         b->last = ngx_sprintf(b->last,
-                              "key:%V\tadjusted_excess:%ud"
-                              "\traw_excess:%ud\trate:%ud\tburst:%ud"
+                              "key:%V\tadjusted_excess:%.3f"
+                              "\traw_excess:%.3f\trate:%ud\tburst:%ud"
                               "\tlast:%ud"
                               "\tlast_time:%*s\n",
-                              &item->key, item->adjusted_excess,
-                              item->raw_excess, item->rate, item->burst,
+                              &item->key,
+                              item->adjusted_excess / 1000.0,
+                              item->raw_excess / 1000.0,
+                              item->rate / 1000,
+                              item->burst / 1000,
                               item->last,
                               (int)sizeof(http_time_buf) - 1, http_time_buf);
     }
