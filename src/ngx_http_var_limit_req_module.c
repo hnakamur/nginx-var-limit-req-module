@@ -1363,7 +1363,7 @@ ngx_http_var_limit_req_top_handler(ngx_http_request_t *r)
     ngx_int_t                       rc;
     ngx_chain_t                     out;
     ngx_array_t                     items;
-    ngx_uint_t                      num_all_keys = 0;
+    ngx_uint_t                      num_all_keys;
 
     lrcf = ngx_http_get_module_loc_conf(r, ngx_http_var_limit_req_module);
     if (lrcf == NULL) {
@@ -1453,13 +1453,15 @@ ngx_http_var_limit_req_top_build_items(ngx_http_request_t *r,
     ngx_rbtree_t *rbtree, ngx_array_t *items, ngx_uint_t *num_all_keys)
 {
     ngx_http_var_limit_req_conf_t         *lrcf;
-    ngx_http_variable_value_t             *arg_n_val;
     ngx_rbtree_node_t                     *node, *root, *sentinel;
     ngx_http_var_limit_req_node_t         *lcn;
+    ngx_http_variable_value_t             *arg_n_val;
     ngx_int_t                              rc, arg_n;
     ngx_uint_t                             i, top_n, old_nelts;
     ngx_http_var_limit_req_status_item_t  *item, tmp_item;
     ngx_msec_t                             now;
+
+    *num_all_keys = 0;
 
     lrcf = ngx_http_get_module_loc_conf(r, ngx_http_var_limit_req_module);
 
@@ -1480,6 +1482,7 @@ ngx_http_var_limit_req_top_build_items(ngx_http_request_t *r,
 
     sentinel = rbtree->sentinel;
     root = rbtree->root;
+
     if (root == sentinel) {
         return NGX_OK;
     }
@@ -1487,7 +1490,6 @@ ngx_http_var_limit_req_top_build_items(ngx_http_request_t *r,
     now = ngx_current_msec;
 
     /* keep only top n items whlie looping using binary search */
-    *num_all_keys = 0;
     for (node = ngx_rbtree_min(root, sentinel);
          node;
          node = ngx_rbtree_next(rbtree, node))
