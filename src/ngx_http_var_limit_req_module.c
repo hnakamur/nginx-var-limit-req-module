@@ -285,6 +285,12 @@ static char  *months[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
 
 
+static ngx_str_t  arg_n_name = ngx_string("arg_n");
+static ngx_str_t  arg_key_name = ngx_string("arg_key");
+static ngx_str_t  top_n_name = ngx_string("x-top-n");
+static ngx_str_t  num_all_keys_name = ngx_string("x-num-all-keys");
+
+
 static ngx_int_t
 ngx_http_var_limit_req_handler(ngx_http_request_t *r)
 {
@@ -328,6 +334,11 @@ ngx_http_var_limit_req_handler(ngx_http_request_t *r)
             ngx_http_var_limit_req_unlock(limits, n);
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
+
+        ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+                      "var_limit_req n=%d, nelts=%d, ctx->key=\"%V\", "
+                      "key=\"%V\"",
+                      n, lrcf->limits.nelts, &ctx->key, &key);
 
         if (key.len == 0) {
             continue;
@@ -417,6 +428,10 @@ ngx_http_var_limit_req_handler(ngx_http_request_t *r)
                                            rate, burst);
 
         ngx_shmtx_unlock(&ctx->shpool->mutex);
+
+        ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+                      "var_limit_req rc=%i, n=%ui",
+                      rc, n);
 
         ngx_log_debug4(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
                        "var_limit_req[%ui]: %i %ui.%03ui",
@@ -698,6 +713,10 @@ ngx_http_var_limit_req_lookup(ngx_http_request_t *r,
     ngx_memcpy(lr->data, key->data, key->len);
 
     ngx_rbtree_insert(&ctx->sh->rbtree, node);
+
+    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+                  "var_limit_req inserted \"%V\" key",
+                  key);
 
     ngx_queue_insert_head(&ctx->sh->queue, &lr->queue);
 
@@ -1354,10 +1373,6 @@ ngx_http_var_limit_req(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 }
 
 
-static ngx_str_t  top_n_name = ngx_string("x-top-n");
-static ngx_str_t  num_all_keys_name = ngx_string("x-num-all-keys");
-
-
 static ngx_int_t
 ngx_http_var_limit_req_top_handler(ngx_http_request_t *r)
 {
@@ -1740,7 +1755,6 @@ ngx_http_var_limit_req_top(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     ngx_uint_t                      i;
     ngx_str_t                       default_n_str;
     ngx_int_t                       default_n = 0;
-    static ngx_str_t                arg_n_name = ngx_string("arg_n");
 
     ngx_str_t  *value;
 
@@ -2020,9 +2034,7 @@ ngx_http_var_limit_req_monitor(ngx_conf_t *cf, ngx_command_t *cmd,
     ngx_shm_zone_t                 *shm_zone;
     ngx_http_var_limit_req_conf_t  *lrcf = conf;
     ngx_http_core_loc_conf_t       *clcf;
-    static ngx_str_t                arg_key_name = ngx_string("arg_key");
-
-    ngx_str_t  *value;
+    ngx_str_t                      *value;
 
     value = cf->args->elts;
 
