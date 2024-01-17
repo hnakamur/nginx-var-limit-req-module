@@ -18,8 +18,14 @@
 #define NGX_HTTP_VAR_LIMIT_REQ_REJECTED_DRY_RUN  5
 
 
-#define lit_len(lit) (sizeof(lit) - 1)
 #define ngx_array_item(a, i) ((void *)((char *)(a)->elts + (a)->size * (i)))
+
+#define ngx_str_eq_literal(s1, literal)                                      \
+    ((s1)->len = sizeof(literal) - 1                                         \
+     && ((s1)->len == 0                                                      \
+         || ngx_strncmp((s1)->data, literal, sizeof(literal) - 1) == 0))
+
+#define lit_len(lit) (sizeof(lit) - 1)
 
 
 typedef struct {
@@ -395,10 +401,10 @@ ngx_http_var_limit_req_handler(ngx_http_request_t *r)
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
         if (dry_run_var.len != 0) {
-            if (ngx_strcasecmp(dry_run_var.data, (u_char *) "on") == 0) {
+            if (ngx_str_eq_literal(&dry_run_var, "on")) {
                 dry_run = 1;
 
-            } else if (ngx_strcasecmp(dry_run_var.data, (u_char *) "off") == 0) {
+            } else if (ngx_str_eq_literal(&dry_run_var, "off")) {
                 dry_run = 0;
 
             } else {
