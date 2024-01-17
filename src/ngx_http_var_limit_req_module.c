@@ -397,7 +397,9 @@ ngx_http_var_limit_req_handler(ngx_http_request_t *r)
             burst *= 1000;
         }
 
-        if (ngx_http_complex_value(r, &ctx->dry_run_var, &dry_run_var) != NGX_OK) {
+        if (ngx_http_complex_value(r, &ctx->dry_run_var, &dry_run_var)
+            != NGX_OK)
+        {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
         if (dry_run_var.len != 0) {
@@ -763,8 +765,9 @@ ngx_http_var_limit_req_duration_after_last_access(ngx_msec_t now,
 
 
 static ngx_msec_t
-ngx_http_var_limit_req_account(ngx_http_var_limit_req_limit_t *limits, ngx_uint_t n,
-    ngx_uint_t *ep, ngx_http_var_limit_req_limit_t **limit, ngx_uint_t rate)
+ngx_http_var_limit_req_account(ngx_http_var_limit_req_limit_t *limits,
+    ngx_uint_t n, ngx_uint_t *ep, ngx_http_var_limit_req_limit_t **limit,
+    ngx_uint_t rate)
 {
     ngx_uint_t                      excess;
     ngx_msec_t                      now, delay, max_delay;
@@ -829,7 +832,8 @@ ngx_http_var_limit_req_account(ngx_http_var_limit_req_limit_t *limits, ngx_uint_
 
 
 static void
-ngx_http_var_limit_req_unlock(ngx_http_var_limit_req_limit_t *limits, ngx_uint_t n)
+ngx_http_var_limit_req_unlock(ngx_http_var_limit_req_limit_t *limits,
+    ngx_uint_t n)
 {
     ngx_http_var_limit_req_ctx_t  *ctx;
 
@@ -957,7 +961,8 @@ ngx_http_var_limit_req_init_zone(ngx_shm_zone_t *shm_zone, void *data)
         return NGX_OK;
     }
 
-    ctx->sh = ngx_slab_alloc(ctx->shpool, sizeof(ngx_http_var_limit_req_shctx_t));
+    ctx->sh = ngx_slab_alloc(ctx->shpool,
+                             sizeof(ngx_http_var_limit_req_shctx_t));
     if (ctx->sh == NULL) {
         return NGX_ERROR;
     }
@@ -1995,7 +2000,8 @@ ngx_http_var_limit_req_monitor_handler(ngx_http_request_t *r)
     ctx = shm_zone->data;
     ngx_shmtx_lock(&ctx->shpool->mutex);
 
-    rc = ngx_http_var_limit_req_monitor_build_items(r, &ctx->sh->rbtree, &items);
+    rc = ngx_http_var_limit_req_monitor_build_items(r, &ctx->sh->rbtree,
+                                                    &items);
 
     ngx_shmtx_unlock(&ctx->shpool->mutex);
 
