@@ -1,6 +1,6 @@
 # ngx_http_var_limit_req_module
 
-This is a derived module from [Module ngx_http_limit_req_module](http://nginx.org/en/docs/http/ngx_http_limit_req_module.html).
+This is a derived module from [ngx_http_limit_req_module](http://nginx.org/en/docs/http/ngx_http_limit_req_module.html).
 It allows override values of rate, burst, dry_run, and status with variables.
 It also provides two directives for monitoring.
 
@@ -182,5 +182,5 @@ key:www1.example.com-B  adjusted_excess:0.000   raw_excess:9.950        rate:50 
 
 ## Embedded Variables
 
-* $var_limit_req_status
+* $limit_req_status (shared with [ngx_http_limit_req_module](http://nginx.org/en/docs/http/ngx_http_limit_req_module.html))
     * keeps the result of limiting the request processing rate: `PASSED`, `DELAYED`, `REJECTED`, `DELAYED_DRY_RUN`, or `REJECTED_DRY_RUN` 
